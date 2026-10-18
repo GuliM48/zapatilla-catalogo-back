@@ -1,0 +1,194 @@
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { QueryDocumentSnapshot } from 'firebase-admin/firestore';
+import { randomUUID } from 'crypto';
+import { extname } from 'path';
+import { FirebaseService } from '../firebase/firebase.service.js';
+import { CreateZapatillaDto } from './dto/create-zapatilla.dto.js';
+import { UpdateZapatillaDto } from './dto/update-zapatilla.dto.js';
+import { UploadedFileDto } from './file-upload.interface.js';
+
+export interface Zapatilla {
+  id: string;
+  nombre: string;
+  marca: string;
+  precio: number;
+  talla: string;
+  stock: number;
+  imagenUrl?: string;
+  modelo3dUrl?: string;
+  descripcion?: string;
+  activo: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+@Injectable()
+export class ZapatillasService {
+  private collectionName = 'zapatillas';
+
+  constructor(private firebaseService: FirebaseService) {}
+
+  private get collection() {
+    return this.firebaseService.getFirestore().collection(this.collectionName);
+  }
+
+  // Sube imagen o archivo 3D a Firebase Storage y retorna la URL pública
+  async uploadFile(file: UploadedFileDto, folder = 'zapatillas'): Promise<{ url: string; fileName: string }> {
+    if (!file) {
+      throw new BadRequestException('No se envió ningún archivo');
+    }
+
+    const bucket = this.firebaseService.getBucket();
+    const fileExtension = extname(file.originalname);
+    const fileName = `${folder}/${randomUUID()}${fileExtension}`;
+    const fileUpload = bucket.file(fileName);
+
+    await fileUpload.save(file.buffer, {
+      metadata: {
+        contentType: file.mimetype,
+      },
+      public: true,
+    });
+
+    try {
+      await fileUpload.makePublic();
+    } catch {
+      // Ignored if bucket enforces uniform access or is already public
+    }
+
+    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
+
+    return {
+      url: publicUrl,
+      fileName,
+    };
+  }
+
+  // Elimina un archivo físico de Firebase Storage dado su URL
+  async deleteFileFromStorage(fileUrl?: string): Promise<boolean> {
+    if (!fileUrl) return false;
+
+    try {
+      const bucket = this.firebaseService.getBucket();
+      // Formato típico: https://storage.googleapis.com/<bucketName>/<filePath>
+      const prefix = `https://storage.googleapis.com/${bucket.name}/`;
+      if (!fileUrl.startsWith(prefix)) {
+        return false;
+      }
+
+      const filePath = decodeURIComponent(fileUrl.replace(prefix, ''));
+      const file = bucket.file(filePath);
+
+      const [exists] = await file.exists();
+      if (exists) {
+        await file.delete();
+        return true;
+      }
+    } catch (error) {
+      console.warn(`No se pudo eliminar el archivo antiguo de Storage: ${fileUrl}`, error);
+    }
+    return false;
+  }
+
+  async create(createDto: CreateZapatillaDto): Promise<Zapatilla> {
+    const now = new Date().toISOString();
+    const docRef = await this.collection.add({
+      ...createDto,
+      activo: createDto.activo !== undefined ? createDto.activo : true,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const doc = await docRef.get();
+    return {
+      id: doc.id,
+      ...(doc.data() as Omit<Zapatilla, 'id'>),
+    };
+  }
+
+  // Lista solo las zapatillas ACTIVAS para el catálogo público
+  // o todas si se especifica includeInactive (para el panel admin)
+  async findAll(includeInactive = false): Promise<Zapatilla[]> {
+    let query: any = this.collection;
+    if (!includeInactive) {
+      query = query.where('activo', '==', true);
+    }
+
+    const snapshot = await query.get();
+    return snapshot.docs.map((doc: QueryDocumentSnapshot) => ({
+      id: doc.id,
+      ...(doc.data() as Omit<Zapatilla, 'id'>),
+    }));
+  }
+
+  async findOne(id: string): Promise<Zapatilla> {
+    const doc = await this.collection.doc(id).get();
+    if (!doc.exists) {
+      throw new NotFoundException(`Zapatilla con id ${id} no encontrada`);
+    }
+
+    const data = doc.data() as Omit<Zapatilla, 'id'>;
+    return {
+      id: doc.id,
+      ...data,
+    };
+  }
+
+  async update(id: string, updateDto: UpdateZapatillaDto): Promise<Zapatilla> {
+    const docRef = this.collection.doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      throw new NotFoundException(`Zapatilla con id ${id} no encontrada`);
+    }
+
+    const currentData = doc.data() as Zapatilla;
+
+    // Si viene una imagenUrl nueva y es distinta a la anterior, borramos la antigua de Storage
+    if (updateDto.imagenUrl && currentData.imagenUrl && updateDto.imagenUrl !== currentData.imagenUrl) {
+      await this.deleteFileFromStorage(currentData.imagenUrl);
+    }
+
+    // Si viene un modelo3dUrl nuevo y es distinto al anterior, borramos el antiguo
+    if (updateDto.modelo3dUrl && currentData.modelo3dUrl && updateDto.modelo3dUrl !== currentData.modelo3dUrl) {
+      await this.deleteFileFromStorage(currentData.modelo3dUrl);
+    }
+
+    const updatedData = {
+      ...updateDto,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await docRef.update(updatedData);
+    const updatedDoc = await docRef.get();
+
+    return {
+      id: updatedDoc.id,
+      ...(updatedDoc.data() as Omit<Zapatilla, 'id'>),
+    };
+  }
+
+  // Soft delete: Cambia activo a false en vez de borrar de la base de datos
+  async deactivate(id: string): Promise<{ message: string; zapatilla: Zapatilla }> {
+    const docRef = this.collection.doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      throw new NotFoundException(`Zapatilla con id ${id} no encontrada`);
+    }
+
+    const now = new Date().toISOString();
+    await docRef.update({
+      activo: false,
+      updatedAt: now,
+    });
+
+    const updatedDoc = await docRef.get();
+
+    return {
+      message: `Zapatilla ${id} desactivada correctamente (no se mostrará en el catálogo)`,
+      zapatilla: {
+        id: updatedDoc.id,
+        ...(updatedDoc.data() as Omit<Zapatilla, 'id'>),
+      },
+    };
+  }
+}
