@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
+import sharp from 'sharp';
 import { FirebaseService } from '../firebase/firebase.service.js';
 import { CreateZapatillaDto } from './dto/create-zapatilla.dto.js';
 import { UpdateZapatillaDto } from './dto/update-zapatilla.dto.js';
@@ -32,20 +33,39 @@ export class ZapatillasService {
     return this.firebaseService.getFirestore().collection(this.collectionName);
   }
 
-  // Sube imagen o archivo 3D a Firebase Storage y retorna la URL pública
+  // Sube archivo a Firebase Storage optimizando automáticamente las imágenes a WebP
   async uploadFile(file: UploadedFileDto, folder = 'zapatillas'): Promise<{ url: string; fileName: string }> {
     if (!file) {
       throw new BadRequestException('No se envió ningún archivo');
     }
 
     const bucket = this.firebaseService.getBucket();
-    const fileExtension = extname(file.originalname);
+    const originalExt = extname(file.originalname).toLowerCase();
+
+    let uploadBuffer = file.buffer;
+    let contentType = file.mimetype;
+    let fileExtension = originalExt;
+
+    // Si es una imagen (PNG, JPG, JPEG, TIFF), la convertimos y comprimimos a WebP
+    const isImage = file.mimetype.startsWith('image/') && !file.mimetype.includes('svg');
+    if (isImage) {
+      try {
+        uploadBuffer = await sharp(file.buffer)
+          .webp({ quality: 80 }) // Optimización con excelente calidad visual y ~70% menos peso
+          .toBuffer();
+        contentType = 'image/webp';
+        fileExtension = '.webp';
+      } catch (err) {
+        console.warn('No se pudo convertir a WebP, subiendo en formato original:', err);
+      }
+    }
+
     const fileName = `${folder}/${randomUUID()}${fileExtension}`;
     const fileUpload = bucket.file(fileName);
 
-    await fileUpload.save(file.buffer, {
+    await fileUpload.save(uploadBuffer, {
       metadata: {
-        contentType: file.mimetype,
+        contentType,
       },
       public: true,
     });

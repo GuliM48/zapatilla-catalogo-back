@@ -35,6 +35,7 @@ export class FirebaseService implements OnModuleInit {
     }
 
     this.db = getFirestore();
+    this.db.settings({ ignoreUndefinedProperties: true });
     this.storageBucket = getStorage().bucket(bucketName);
   }
 
