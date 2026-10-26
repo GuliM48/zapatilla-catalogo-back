@@ -1,0 +1,97 @@
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PedidosService } from '../pedidos/pedidos.service.js';
+import { EstadoPedidoEnum } from '../pedidos/dto/pedido-response.dto.js';
+import { CrearPagoDto } from './dto/crear-pago.dto.js';
+import { PagoResponseDto } from './dto/pago-response.dto.js';
+import { WebhookPagoDto } from './dto/webhook-pago.dto.js';
+
+@Injectable()
+export class PagosService {
+  private readonly logger = new Logger(PagosService.name);
+
+  constructor(
+    private readonly pedidosService: PedidosService,
+    private readonly configService: ConfigService,
+  ) {}
+
+  /**
+   * Genera la preferencia o link de pago en modo Sandbox para la pasarela Mercado Pago.
+   */
+  async crearPreferencia(crearPagoDto: CrearPagoDto): Promise<PagoResponseDto> {
+    const pedido = this.pedidosService.findOne(crearPagoDto.pedidoId);
+
+    if (pedido.estado === EstadoPedidoEnum.PAGADO) {
+      throw new BadRequestException('El pedido ya se encuentra pagado.');
+    }
+
+    const prefId = `PREF-SANDBOX-${Date.now()}`;
+    const sandboxUrl = `https://sandbox.mercadopago.com.pe/checkout/v1/redirect?pref_id=${prefId}`;
+    const initPointUrl = `https://www.mercadopago.com.pe/checkout/v1/redirect?pref_id=${prefId}`;
+
+    // Actualizamos el pedido con el link de pago generado
+    this.pedidosService.actualizarEstado(pedido.id, EstadoPedidoEnum.PENDIENTE_PAGO, sandboxUrl);
+
+    this.logger.log(`Preferencia Sandbox generada para Pedido '${pedido.id}': ${prefId}`);
+
+    return {
+      preferenciaId: prefId,
+      pedidoId: pedido.id,
+      initPoint: initPointUrl,
+      sandboxInitPoint: sandboxUrl,
+      montoTotal: pedido.montoTotal,
+      estado: 'creado',
+    };
+  }
+
+  /**
+   * Procesa la notificación automática (Webhook) recibida de la pasarela de pagos.
+   */
+  async procesarWebhook(webhookData: WebhookPagoDto): Promise<any> {
+    this.logger.log(`Webhook recibido: ${JSON.stringify(webhookData)}`);
+
+    const pedidoId = webhookData.external_reference;
+    const status = (webhookData.status || 'approved').toLowerCase();
+
+    if (!pedidoId) {
+      return {
+        recibido: true,
+        mensaje: 'Webhook procesado sin referencia externa de pedido.',
+      };
+    }
+
+    let nuevoEstado = EstadoPedidoEnum.PENDIENTE_PAGO;
+    if (status === 'approved' || status === 'accredited' || status === 'paid') {
+      nuevoEstado = EstadoPedidoEnum.PAGADO;
+    } else if (status === 'rejected' || status === 'cancelled') {
+      nuevoEstado = EstadoPedidoEnum.RECHAZADO;
+    }
+
+    const pedidoActualizado = this.pedidosService.actualizarEstado(pedidoId, nuevoEstado);
+
+    return {
+      recibido: true,
+      pedidoId: pedidoActualizado.id,
+      nuevoEstadoPedido: pedidoActualizado.estado,
+      mensaje: 'Estado del pedido actualizado correctamente desde Webhook.',
+    };
+  }
+
+  /**
+   * Confirmación manual de pago simulado para pruebas locales en Sandbox.
+   */
+  confirmarPagoSimulado(pedidoId: string, estado: string) {
+    const isApproved = estado.toLowerCase() === 'approved' || estado.toLowerCase() === 'pagado';
+    const nuevoEstado = isApproved ? EstadoPedidoEnum.PAGADO : EstadoPedidoEnum.RECHAZADO;
+
+    const pedido = this.pedidosService.actualizarEstado(pedidoId, nuevoEstado);
+
+    return {
+      exito: true,
+      pedidoId: pedido.id,
+      estado: pedido.estado,
+      montoTotal: pedido.montoTotal,
+      mensaje: `Pago ${isApproved ? 'Aprobado' : 'Rechazado'} exitosamente en modo Sandbox.`,
+    };
+  }
+}
