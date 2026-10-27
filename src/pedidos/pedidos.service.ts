@@ -184,6 +184,18 @@ export class PedidosService {
       updatePayload.urlPago = urlPago;
     }
 
+    // Si el pedido pasa a PAGADO, descontar el stock de las zapatillas correspondientes
+    if (nuevoEstado === EstadoPedidoEnum.PAGADO) {
+      try {
+        const pedido = await this.findOne(id);
+        for (const item of pedido.items) {
+          await this.zapatillasService.disminuirStock(item.zapatillaId, item.cantidad);
+        }
+      } catch (err) {
+        this.logger.warn(`Error descontando stock tras pago para pedido ${id}:`, err);
+      }
+    }
+
     try {
       const ref = this.collection.doc(id);
       const doc = await ref.get();

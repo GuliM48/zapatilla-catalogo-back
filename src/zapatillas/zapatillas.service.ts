@@ -129,6 +129,24 @@ export class ZapatillasService {
       categoria: 'Urbanas',
       activo: true,
     },
+    {
+      id: '3d-sample-storage',
+      nombre: 'Nike Air Velocity (Storage .glb)',
+      marca: 'Nike',
+      modelo: 'Velocity Storage',
+      precio: 185.00,
+      descripcion: 'Archivo .glb en Firebase Storage con visor 3D.',
+      imagenes: ['https://images.unsplash.com/photo-1542291026-7eec264c27ff'],
+      imagenUrl: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff',
+      modelo3dUrl: 'https://storage.googleapis.com/banco-de-imagenes-eaffd.firebasestorage.app/zapatillas/sneakers-poly-google.glb',
+      talla: '40, 41, 42, 43',
+      tallasDisponibles: [40, 41, 42, 43],
+      colores: ['Negro/Rojo'],
+      stock: 12,
+      esNuevo: true,
+      categoria: 'Running',
+      activo: true,
+    },
   ];
 
   constructor(private readonly firebaseService: FirebaseService) {}
@@ -420,5 +438,36 @@ export class ZapatillasService {
     });
 
     return { message: `Zapatilla con id ${id} desactivada exitosamente` };
+  }
+
+  /**
+   * Disminuye el stock de una zapatilla tras confirmarse un pago.
+   * Funciona tanto en Firestore como en el catálogo demo en memoria.
+   */
+  async disminuirStock(id: string, cantidad: number): Promise<void> {
+    // 1. Descontar en el catálogo en memoria (fallback / demo)
+    const fallback = this.fallbackCatalog.find((z) => z.id === id);
+    if (fallback) {
+      fallback.stock = Math.max(0, fallback.stock - cantidad);
+      this.logger.log(`Stock actualizado en memoria para '${id}': ${fallback.stock}`);
+    }
+
+    // 2. Descontar en Firestore si el documento existe
+    try {
+      const docRef = this.collection.doc(id);
+      const doc = await docRef.get();
+      if (doc.exists) {
+        const currentData = doc.data();
+        const currentStock = Number(currentData?.stock ?? 0);
+        const newStock = Math.max(0, currentStock - cantidad);
+        await docRef.update({
+          stock: newStock,
+          updatedAt: new Date().toISOString(),
+        });
+        this.logger.log(`Stock actualizado en Firestore para '${id}': ${newStock}`);
+      }
+    } catch (error) {
+      this.logger.warn(`Error disminuyendo stock en Firestore para '${id}':`, error);
+    }
   }
 }
