@@ -59,12 +59,15 @@ export class PedidoResponseDto {
   @ApiProperty({ type: DireccionEnvioDto })
   direccionEnvio: DireccionEnvioDto;
 
+  @ApiPropertyOptional({ example: 'Llamar antes de entregar' })
+  notas?: string;
+
   @ApiPropertyOptional({ example: 'https://sandbox.mercadopago.com.pe/checkout/v1/redirect?pref_id=123' })
   urlPago?: string;
 
   @ApiProperty({ example: '2026-10-24T16:00:00.000Z' })
-  fechaCreacion: Date;
+  fechaCreacion: string;
 
   @ApiPropertyOptional({ example: '2026-10-24T16:00:00.000Z' })
-  fechaActualizacion?: Date;
+  fechaActualizacion?: string;
 }

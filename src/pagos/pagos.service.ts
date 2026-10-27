@@ -19,7 +19,7 @@ export class PagosService {
    * Genera la preferencia o link de pago en modo Sandbox para la pasarela Mercado Pago.
    */
   async crearPreferencia(crearPagoDto: CrearPagoDto): Promise<PagoResponseDto> {
-    const pedido = this.pedidosService.findOne(crearPagoDto.pedidoId);
+    const pedido = await this.pedidosService.findOne(crearPagoDto.pedidoId);
 
     if (pedido.estado === EstadoPedidoEnum.PAGADO) {
       throw new BadRequestException('El pedido ya se encuentra pagado.');
@@ -30,7 +30,7 @@ export class PagosService {
     const initPointUrl = `https://www.mercadopago.com.pe/checkout/v1/redirect?pref_id=${prefId}`;
 
     // Actualizamos el pedido con el link de pago generado
-    this.pedidosService.actualizarEstado(pedido.id, EstadoPedidoEnum.PENDIENTE_PAGO, sandboxUrl);
+    await this.pedidosService.actualizarEstado(pedido.id, EstadoPedidoEnum.PENDIENTE_PAGO, sandboxUrl);
 
     this.logger.log(`Preferencia Sandbox generada para Pedido '${pedido.id}': ${prefId}`);
 
@@ -67,7 +67,7 @@ export class PagosService {
       nuevoEstado = EstadoPedidoEnum.RECHAZADO;
     }
 
-    const pedidoActualizado = this.pedidosService.actualizarEstado(pedidoId, nuevoEstado);
+    const pedidoActualizado = await this.pedidosService.actualizarEstado(pedidoId, nuevoEstado);
 
     return {
       recibido: true,
@@ -80,11 +80,11 @@ export class PagosService {
   /**
    * Confirmación manual de pago simulado para pruebas locales en Sandbox.
    */
-  confirmarPagoSimulado(pedidoId: string, estado: string) {
+  async confirmarPagoSimulado(pedidoId: string, estado: string) {
     const isApproved = estado.toLowerCase() === 'approved' || estado.toLowerCase() === 'pagado';
     const nuevoEstado = isApproved ? EstadoPedidoEnum.PAGADO : EstadoPedidoEnum.RECHAZADO;
 
-    const pedido = this.pedidosService.actualizarEstado(pedidoId, nuevoEstado);
+    const pedido = await this.pedidosService.actualizarEstado(pedidoId, nuevoEstado);
 
     return {
       exito: true,
