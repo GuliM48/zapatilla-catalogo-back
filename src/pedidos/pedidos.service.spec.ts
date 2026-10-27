@@ -30,6 +30,7 @@ describe('PedidosService', () => {
         nombre: 'Pizzo Velocity 3D Pro',
         precio: 250.0,
       }),
+      disminuirStock: vi.fn().mockResolvedValue(undefined),
     };
 
     pedidosService = new PedidosService(mockFirebaseService, mockZapatillasService);
