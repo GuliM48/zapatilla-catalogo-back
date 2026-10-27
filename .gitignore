@@ -63,3 +63,9 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Modelos 3D y archivos multimedia (viven en Firebase Storage)
+*.glb
+*.gltf
+uploads/
+recursos_para_subir/
