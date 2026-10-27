@@ -147,6 +147,27 @@ export class PedidosService {
   }
 
   /**
+   * Obtiene todos los pedidos registrados en Firestore o en memoria (para reportes de ventas).
+   */
+  async findAll(): Promise<PedidoResponseDto[]> {
+    try {
+      const snapshot = await this.collection.get();
+      if (!snapshot.empty) {
+        const lista = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...(doc.data() as Omit<PedidoResponseDto, 'id'>),
+        }));
+        return lista.sort((a, b) => (b.fechaCreacion ?? '').localeCompare(a.fechaCreacion ?? ''));
+      }
+    } catch (error) {
+      this.logger.warn('Error leyendo todos los pedidos desde Firestore, usando memoria:', error);
+    }
+
+    const list = Array.from(this.pedidosMap.values());
+    return list.sort((a, b) => (b.fechaCreacion ?? '').localeCompare(a.fechaCreacion ?? ''));
+  }
+
+  /**
    * Busca un pedido por ID en Firestore o en memoria.
    */
   async findOne(id: string): Promise<PedidoResponseDto> {

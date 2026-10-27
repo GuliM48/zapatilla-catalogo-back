@@ -35,6 +35,20 @@ export class PedidosController {
     return this.pedidosService.create(createPedidoDto, usuarioDe(req));
   }
 
+  @Get()
+  @ApiOperation({
+    summary: 'Listar todos los pedidos (Panel Admin y Reportes)',
+    description: 'Retorna todos los pedidos registrados en Firestore para cálculo de métricas de ventas y KPIs.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista completa de pedidos',
+    type: [PedidoResponseDto],
+  })
+  async findAll(): Promise<PedidoResponseDto[]> {
+    return this.pedidosService.findAll();
+  }
+
   @Get('mis')
   @ApiOperation({
     summary: 'Obtener mis pedidos',
